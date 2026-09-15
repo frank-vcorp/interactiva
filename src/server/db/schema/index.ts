@@ -31,6 +31,8 @@ export const users = pgTable(
   ],
 );
 
+export * from "./catalog";
+
 export const sessions = pgTable("sessions", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id")

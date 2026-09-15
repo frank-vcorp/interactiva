@@ -17,6 +17,7 @@
     "db:migrate": "tsx src/server/db/migrate.ts",
     "db:seed": "tsx scripts/seed-superuser.ts",
     "bootstrap": "tsx scripts/bootstrap.ts",
+    "import:local": "tsx scripts/import-local.ts",
     "postinstall": "node -e \"process.exit(0)\""
   },
   "dependencies": {

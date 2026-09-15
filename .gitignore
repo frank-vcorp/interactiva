@@ -16,6 +16,7 @@ drizzle/meta/*
 !drizzle/meta/_journal.json
 
 # misc
+*.tsbuildinfo
 *.log
 .DS_Store
 .vercel
@@ -24,3 +25,6 @@ coverage/
 
 # uploads (catalog PDFs stored at runtime)
 storage/
+
+# PDFs de muestra local (no commitear)
+contexto/*.pdf
