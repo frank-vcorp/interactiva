@@ -15,6 +15,10 @@ import {
 import { ocrPdfPage, getPdfPageCount, assertOcrToolsAvailable } from "./ocr";
 import { parseCatalogPage } from "./parsers";
 import {
+  parseEbcPage,
+  type EbcParseContext,
+} from "./parsers/ebc";
+import {
   CANCEL_EDITION_MESSAGE,
   STALE_EDITION_MESSAGE,
   isEditionOcrStale,
@@ -339,10 +343,23 @@ export async function processEdition(
     ? Math.min(totalPages, maxPages)
     : totalPages;
 
+  let ebcContext: EbcParseContext = {
+    brand: null,
+    year: null,
+    group: null,
+  };
+
   for (let page = 1; page <= pagesToProcess; page++) {
     try {
       const text = await ocrPdfPage(pdfPath, page);
-      const parsed = parseCatalogPage(edition.source, text, page);
+      let parsed;
+      if (edition.source === "ebc") {
+        const ebcParsed = parseEbcPage(text, page, ebcContext);
+        ebcContext = ebcParsed.context;
+        parsed = ebcParsed;
+      } else {
+        parsed = parseCatalogPage(edition.source, text, page);
+      }
 
       for (const w of parsed.warnings) warnings.push(w);
 
