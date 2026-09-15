@@ -52,6 +52,12 @@ export default async function AdminCatalogosPage() {
                       {STATUS_LABEL[edition.status] ?? edition.status} ·{" "}
                       {edition.processedCount} interpretados ·{" "}
                       {edition.discardedCount} descartados
+                      {edition.status === "loaded" && (
+                        <span className="text-amber-700">
+                          {" "}
+                          · OCR pendiente — abre y pulsa Reintentar OCR
+                        </span>
+                      )}
                     </p>
                   </Link>
                 </li>

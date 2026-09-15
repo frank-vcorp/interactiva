@@ -14,24 +14,25 @@ export function CatalogEditionActions({ editionId, status }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState<string | null>(null);
 
-  async function action(kind: "publish" | "restore") {
+  async function runAction(
+    kind: "publish" | "restore" | "retry",
+    options?: { confirm?: string },
+  ) {
     setLoading(kind);
     setError(null);
-    const confirmed =
-      kind === "publish"
-        ? window.confirm("¿Publicar esta edición como vigente para su fuente?")
-        : window.confirm(
-            "¿Restaurar esta edición? La edición vigente actual quedará sustituida.",
-          );
-    if (!confirmed) {
+
+    if (options?.confirm && !window.confirm(options.confirm)) {
       setLoading(null);
       return;
     }
 
+    const path =
+      kind === "retry"
+        ? `/api/admin/catalogs/${editionId}/retry`
+        : `/api/admin/catalogs/${editionId}/${kind}`;
+
     try {
-      const res = await fetch(`/api/admin/catalogs/${editionId}/${kind}`, {
-        method: "POST",
-      });
+      const res = await fetch(path, { method: "POST" });
       const data = (await res.json()) as { ok?: boolean; message?: string };
       if (!res.ok || !data.ok) {
         setError(data.message ?? "Acción no completada.");
@@ -45,17 +46,48 @@ export function CatalogEditionActions({ editionId, status }: Props) {
     }
   }
 
+  const canRetry = ["loaded", "processing", "failed"].includes(status);
+
   return (
     <div className="flex flex-wrap gap-2">
+      {canRetry && (
+        <Button
+          variant="outline"
+          onClick={() =>
+            runAction("retry", {
+              confirm:
+                status === "processing"
+                  ? "¿Reiniciar el OCR? Se perderá el progreso parcial."
+                  : "¿Reintentar el procesamiento OCR de este PDF?",
+            })
+          }
+          disabled={!!loading}
+        >
+          {loading === "retry" ? "Reencolando…" : "Reintentar OCR"}
+        </Button>
+      )}
       {status === "processed" && (
-        <Button onClick={() => action("publish")} disabled={!!loading}>
+        <Button
+          onClick={() =>
+            runAction("publish", {
+              confirm:
+                "¿Publicar esta edición como vigente para su fuente?",
+            })
+          }
+          disabled={!!loading}
+        >
           {loading === "publish" ? "Publicando…" : "Publicar edición"}
         </Button>
       )}
       {status === "superseded" && (
         <Button
           variant="outline"
-          onClick={() => action("restore")}
+          onClick={() =>
+            runAction("restore", {
+              confirm:
+                "¿Restaurar esta edición? La edición vigente actual quedará sustituida.",
+            })
+          }
           disabled={!!loading}
         >
           {loading === "restore" ? "Restaurando…" : "Restaurar edición"}

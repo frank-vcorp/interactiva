@@ -4,6 +4,6 @@ export async function GET() {
   return NextResponse.json({
     ok: true,
     service: "interactiva",
-    phase: 1,
+    phase: 6,
   });
 }

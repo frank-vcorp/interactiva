@@ -12,6 +12,8 @@ async function main() {
   }
 
   const db = getDb();
+  const passwordHash = await hashPassword(password);
+
   const existing = await db
     .select({ id: users.id })
     .from(users)
@@ -19,12 +21,15 @@ async function main() {
     .limit(1);
 
   if (existing.length > 0) {
-    console.log("Superusuario ya existe, omitiendo seed.");
+    await db
+      .update(users)
+      .set({ passwordHash, updatedAt: new Date() })
+      .where(eq(users.loginKey, SUPERUSER_LOGIN_KEY));
+    console.log("Superusuario Vectoria — contraseña sincronizada desde env.");
     await getPool().end();
     return;
   }
 
-  const passwordHash = await hashPassword(password);
   await db.insert(users).values({
     loginKey: SUPERUSER_LOGIN_KEY,
     whatsapp: null,

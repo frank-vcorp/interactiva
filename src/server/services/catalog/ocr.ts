@@ -1,5 +1,5 @@
 import { execFile } from "child_process";
-import { mkdtemp, readFile, rm } from "fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "fs/promises";
 import os from "os";
 import path from "path";
 import { promisify } from "util";
@@ -38,7 +38,14 @@ export async function ocrPdfPage(
       ],
       { maxBuffer: 10 * 1024 * 1024 },
     );
-    const imagePath = `${prefix}-${pageNumber}.png`;
+    const files = await readdir(tmpDir);
+    const pngName = files.find((name) => name.endsWith(".png"));
+    if (!pngName) {
+      throw new Error(
+        `No se generó imagen PNG para la página ${pageNumber}.`,
+      );
+    }
+    const imagePath = path.join(tmpDir, pngName);
     const { stdout } = await execFileAsync(
       "tesseract",
       [imagePath, "stdout", "-l", "spa"],
@@ -63,10 +70,17 @@ export async function fileExists(p: string): Promise<boolean> {
   }
 }
 
+const OCR_TOOL_CHECKS: Array<{ cmd: string; args: string[] }> = [
+  // pdfinfo no soporta --version; interpreta el flag como ruta de archivo.
+  { cmd: "pdfinfo", args: ["-v"] },
+  { cmd: "pdftoppm", args: ["-v"] },
+  { cmd: "tesseract", args: ["--version"] },
+];
+
 export async function assertOcrToolsAvailable(): Promise<void> {
-  for (const cmd of ["pdfinfo", "pdftoppm", "tesseract"]) {
+  for (const { cmd, args } of OCR_TOOL_CHECKS) {
     try {
-      await execFileAsync(cmd, ["--version"], { maxBuffer: 1024 * 1024 });
+      await execFileAsync(cmd, args, { maxBuffer: 1024 * 1024 });
     } catch {
       throw new Error(
         `Herramienta OCR requerida no disponible: ${cmd}. Instala poppler-utils y tesseract-ocr-spa.`,

@@ -6,11 +6,13 @@ import {
   type CatalogEdition,
 } from "@/server/db/schema";
 import {
+  detectEditionFromFilename,
   detectEditionLabel,
   detectSource,
+  detectSourceFromFilename,
   validateSourceMatch,
 } from "./detect-edition";
-import { ocrPdfCover, ocrPdfPage, getPdfPageCount, assertOcrToolsAvailable } from "./ocr";
+import { ocrPdfPage, getPdfPageCount, assertOcrToolsAvailable } from "./ocr";
 import { parseCatalogPage } from "./parsers";
 import {
   getEditionPdfPath,
@@ -52,28 +54,65 @@ export async function getPublishedEdition(source: CatalogSource) {
   return edition ?? null;
 }
 
+export type ImportUploadResult =
+  | { edition: CatalogEdition; reused?: boolean }
+  | { error: string; code: string; existingEditionId?: string };
+
+const RETRIABLE_IMPORT_STATUSES = new Set(["loaded", "processing", "failed"]);
+
 export async function createImportFromUpload(
   source: CatalogSource,
   pdfBuffer: Buffer,
-): Promise<{ edition: CatalogEdition } | { error: string; code: string }> {
+): Promise<ImportUploadResult> {
   const db = getDb();
   const sha256 = sha256Buffer(pdfBuffer);
 
-  const duplicate = await db
-    .select({ id: catalogEditions.id })
+  const [existing] = await db
+    .select()
     .from(catalogEditions)
-    .where(
-      and(
-        eq(catalogEditions.pdfSha256, sha256),
-        ne(catalogEditions.status, "failed"),
-      ),
-    )
+    .where(eq(catalogEditions.pdfSha256, sha256))
+    .orderBy(desc(catalogEditions.createdAt))
     .limit(1);
 
-  if (duplicate.length > 0) {
+  if (existing) {
+    if (RETRIABLE_IMPORT_STATUSES.has(existing.status)) {
+      const saved = await saveEditionPdf(existing.id, pdfBuffer);
+      await db
+        .update(catalogEditions)
+        .set({
+          source,
+          pdfPath: saved.path,
+          pdfSha256: sha256,
+          status: "loaded",
+          processedPages: 0,
+          processedCount: 0,
+          discardedCount: 0,
+          warningCount: 0,
+          errorCount: 0,
+          warnings: [],
+          errors: [],
+          comparisonNotes: [],
+          totalPages: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(catalogEditions.id, existing.id));
+
+      return {
+        edition: {
+          ...existing,
+          source,
+          pdfPath: saved.path,
+          status: "loaded",
+        },
+        reused: true,
+      };
+    }
+
     return {
-      error: "Este PDF ya fue importado previamente.",
+      error:
+        "Este PDF ya fue importado y procesado. Abre la importación existente o usa otra edición.",
       code: "DUPLICATE_PDF",
+      existingEditionId: existing.id,
     };
   }
 
@@ -100,8 +139,58 @@ export async function createImportFromUpload(
   return { edition: { ...placeholder, pdfPath: saved.path } };
 }
 
-export async function processEdition(editionId: string): Promise<void> {
-  await assertOcrToolsAvailable();
+export type ProcessEditionHints = {
+  originalFilename?: string;
+};
+
+export async function queueEditionProcessing(
+  editionId: string,
+  hints?: ProcessEditionHints,
+): Promise<void> {
+  void processEdition(editionId, hints).catch(async (err) => {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[catalog-import] background process failed", {
+      editionId,
+      message,
+    });
+    await markEditionFailed(editionId, [message]);
+  });
+}
+
+export async function retryEditionProcessing(editionId: string): Promise<void> {
+  const edition = await getEdition(editionId);
+  if (!edition) throw new Error("Edición no encontrada.");
+  if (!RETRIABLE_IMPORT_STATUSES.has(edition.status)) {
+    throw new Error(
+      "Solo se puede reintentar importaciones en estado cargada, procesando o fallida.",
+    );
+  }
+
+  const db = getDb();
+  await db
+    .update(catalogEditions)
+    .set({
+      status: "loaded",
+      processedPages: 0,
+      processedCount: 0,
+      discardedCount: 0,
+      warningCount: 0,
+      errorCount: 0,
+      warnings: [],
+      errors: [],
+      comparisonNotes: [],
+      totalPages: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(catalogEditions.id, editionId));
+
+  queueEditionProcessing(editionId);
+}
+
+export async function processEdition(
+  editionId: string,
+  hints?: ProcessEditionHints,
+): Promise<void> {
   const db = getDb();
   const edition = await getEdition(editionId);
   if (!edition) throw new Error("Edición no encontrada.");
@@ -109,14 +198,10 @@ export async function processEdition(editionId: string): Promise<void> {
     throw new Error("No se puede reprocesar una edición publicada o sustituida.");
   }
 
-  const pdfPath = getEditionPdfPath(editionId);
-  const totalPages = await getPdfPageCount(pdfPath);
-
   await db
     .update(catalogEditions)
     .set({
       status: "processing",
-      totalPages,
       processedPages: 0,
       processedCount: 0,
       discardedCount: 0,
@@ -129,34 +214,59 @@ export async function processEdition(editionId: string): Promise<void> {
     })
     .where(eq(catalogEditions.id, editionId));
 
-  await db
-    .delete(vehicleRecords)
-    .where(eq(vehicleRecords.editionId, editionId));
-
-  let coverText = "";
   try {
-    coverText = await ocrPdfCover(pdfPath);
-  } catch (err) {
-    await failEdition(editionId, [`Error OCR portada: ${String(err)}`]);
-    return;
-  }
+    await assertOcrToolsAvailable();
 
-  const detectedLabel = detectEditionLabel(coverText);
-  const detectedSource = detectSource(coverText);
+    const pdfPath = getEditionPdfPath(editionId);
+    const totalPages = await getPdfPageCount(pdfPath);
 
-  if (!detectedLabel) {
-    await failEdition(editionId, [
-      "No se detectó la edición (mes/año) en la portada del PDF.",
-    ]);
-    return;
-  }
+    await db
+      .update(catalogEditions)
+      .set({ totalPages, updatedAt: new Date() })
+      .where(eq(catalogEditions.id, editionId));
 
-  if (!validateSourceMatch(edition.source, detectedSource)) {
-    await failEdition(editionId, [
-      `La portada no coincide con la fuente seleccionada (${edition.source}).`,
-    ]);
-    return;
-  }
+    await db
+      .delete(vehicleRecords)
+      .where(eq(vehicleRecords.editionId, editionId));
+
+    let coverText = "";
+    let detectedLabel: string | null = null;
+    let detectedSource: ReturnType<typeof detectSource> = null;
+
+    for (let page = 1; page <= 5 && !detectedLabel; page++) {
+      try {
+        coverText = await ocrPdfPage(pdfPath, page);
+        detectedLabel = detectEditionLabel(coverText);
+        detectedSource = detectSource(coverText);
+      } catch (err) {
+        if (page === 1) {
+          await markEditionFailed(editionId, [`Error OCR portada: ${String(err)}`]);
+          return;
+        }
+      }
+    }
+
+    if (!detectedLabel && hints?.originalFilename) {
+      detectedLabel = detectEditionFromFilename(hints.originalFilename);
+      detectedSource = detectSourceFromFilename(hints.originalFilename);
+    }
+
+    if (!detectedLabel) {
+      await markEditionFailed(editionId, [
+        "No se detectó la edición (mes/año) en las primeras páginas ni en el nombre del archivo.",
+      ]);
+      return;
+    }
+
+    if (
+      detectedSource &&
+      !validateSourceMatch(edition.source, detectedSource)
+    ) {
+      await markEditionFailed(editionId, [
+        `La portada no coincide con la fuente seleccionada (${edition.source}).`,
+      ]);
+      return;
+    }
 
   const existingLabel = await db
     .select({ id: catalogEditions.id })
@@ -172,7 +282,7 @@ export async function processEdition(editionId: string): Promise<void> {
     .limit(1);
 
   if (existingLabel.length > 0) {
-    await failEdition(editionId, [
+    await markEditionFailed(editionId, [
       `Ya existe una importación para ${edition.source.toUpperCase()} ${detectedLabel}.`,
     ]);
     return;
@@ -255,24 +365,30 @@ export async function processEdition(editionId: string): Promise<void> {
     editionId,
   );
 
-  await db
-    .update(catalogEditions)
-    .set({
-      status: errors.length > 0 && processedCount === 0 ? "failed" : "processed",
-      processedPages: totalPages,
-      processedCount,
-      discardedCount,
-      warningCount: warnings.length,
-      errorCount: errors.length,
-      warnings,
-      errors,
-      comparisonNotes,
-      updatedAt: new Date(),
-    })
-    .where(eq(catalogEditions.id, editionId));
+    await db
+      .update(catalogEditions)
+      .set({
+        status: errors.length > 0 && processedCount === 0 ? "failed" : "processed",
+        processedPages: totalPages,
+        processedCount,
+        discardedCount,
+        warningCount: warnings.length,
+        errorCount: errors.length,
+        warnings,
+        errors,
+        comparisonNotes,
+        updatedAt: new Date(),
+      })
+      .where(eq(catalogEditions.id, editionId));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error("[catalog-import] processEdition", editionId, message);
+    await markEditionFailed(editionId, [message]);
+    throw err;
+  }
 }
 
-async function failEdition(editionId: string, errors: string[]) {
+export async function markEditionFailed(editionId: string, errors: string[]) {
   const db = getDb();
   await db
     .update(catalogEditions)
