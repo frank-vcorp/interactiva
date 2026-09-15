@@ -14,8 +14,14 @@ import {
 } from "./detect-edition";
 import { ocrPdfPage, getPdfPageCount, assertOcrToolsAvailable } from "./ocr";
 import { parseCatalogPage } from "./parsers";
+import {
+  CANCEL_EDITION_MESSAGE,
+  STALE_EDITION_MESSAGE,
+  isEditionOcrStale,
+} from "@/lib/catalog-import-stale";
 import { pruneEditionPdfsForSource } from "./prune-storage";
 import {
+  editionPdfExists,
   getEditionPdfPath,
   saveEditionPdf,
   sha256Buffer,
@@ -162,12 +168,36 @@ export async function queueEditionProcessing(
   });
 }
 
+export async function reconcileStaleEdition(editionId: string): Promise<boolean> {
+  const edition = await getEdition(editionId);
+  if (!edition || !isEditionOcrStale(edition.status, edition.updatedAt)) {
+    return false;
+  }
+  await markEditionFailed(editionId, [STALE_EDITION_MESSAGE]);
+  return true;
+}
+
+export async function cancelEditionProcessing(editionId: string): Promise<void> {
+  const edition = await getEdition(editionId);
+  if (!edition) throw new Error("Edición no encontrada.");
+  if (!["loaded", "processing"].includes(edition.status)) {
+    throw new Error("Solo se puede detener importaciones en curso.");
+  }
+  await markEditionFailed(editionId, [CANCEL_EDITION_MESSAGE]);
+}
+
 export async function retryEditionProcessing(editionId: string): Promise<void> {
   const edition = await getEdition(editionId);
   if (!edition) throw new Error("Edición no encontrada.");
   if (!RETRIABLE_IMPORT_STATUSES.has(edition.status)) {
     throw new Error(
       "Solo se puede reintentar importaciones en estado cargada, procesando o fallida.",
+    );
+  }
+
+  if (!(await editionPdfExists(editionId))) {
+    throw new Error(
+      "El PDF no está en el servidor (puede haberse perdido en un redeploy). Vuelve a subirlo desde Catálogos.",
     );
   }
 

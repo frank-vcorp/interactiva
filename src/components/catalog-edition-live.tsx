@@ -1,6 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import {
+  isEditionOcrStale,
+  OCR_LOADED_STALE_MS,
+  OCR_PROCESSING_STALE_MS,
+} from "@/lib/catalog-import-stale";
 
 type EditionPayload = {
   edition: {
@@ -17,6 +24,7 @@ type EditionPayload = {
     warnings: string[];
     errors: string[];
     comparisonNotes: string[];
+    updatedAt: string | Date;
   };
   stats: { total: number; interpreted: number };
 };
@@ -38,13 +46,29 @@ export function CatalogEditionLive({
   initial: EditionPayload;
 }) {
   const [data, setData] = useState(initial);
+  const [meta, setMeta] = useState({ pdfAvailable: true, isStale: false });
   const [pollError, setPollError] = useState<string | null>(null);
+  const [now, setNow] = useState(Date.now());
 
   useEffect(() => {
-    const active = ["loaded", "processing"].includes(data.edition.status);
+    const tick = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(tick);
+  }, []);
+
+  useEffect(() => {
+    const active = ["loaded", "processing", "failed"].includes(
+      data.edition.status,
+    );
     if (!active) return;
 
-    const intervalMs = data.edition.status === "loaded" ? 2000 : 5000;
+    const intervalMs =
+      data.edition.status === "loaded"
+        ? 2000
+        : data.edition.status === "failed"
+          ? 0
+          : 5000;
+
+    if (intervalMs === 0) return;
 
     const timer = setInterval(async () => {
       try {
@@ -57,10 +81,15 @@ export function CatalogEditionLive({
           ok?: boolean;
           edition?: EditionPayload["edition"];
           stats?: EditionPayload["stats"];
+          meta?: { pdfAvailable?: boolean; isStale?: boolean };
         };
         if (json.ok && json.edition && json.stats) {
           setPollError(null);
           setData({ edition: json.edition, stats: json.stats });
+          setMeta({
+            pdfAvailable: json.meta?.pdfAvailable ?? true,
+            isStale: json.meta?.isStale ?? false,
+          });
         }
       } catch {
         setPollError("Error de conexión al consultar el progreso.");
@@ -71,12 +100,20 @@ export function CatalogEditionLive({
   }, [editionId, data.edition.status]);
 
   const { edition } = data;
+  const clientStale = isEditionOcrStale(edition.status, edition.updatedAt);
+  const isStale = meta.isStale || clientStale;
+  const isActive =
+    ["loaded", "processing"].includes(edition.status) && !isStale;
+
   const progress =
     edition.totalPages && edition.totalPages > 0
       ? Math.round((edition.processedPages / edition.totalPages) * 100)
       : 0;
 
-  const isActive = ["loaded", "processing"].includes(edition.status);
+  const staleMinutes =
+    edition.status === "loaded"
+      ? Math.round(OCR_LOADED_STALE_MS / 60_000)
+      : Math.round(OCR_PROCESSING_STALE_MS / 60_000);
 
   return (
     <div className="space-y-4">
@@ -86,14 +123,45 @@ export function CatalogEditionLive({
         </div>
       )}
 
+      {isStale && ["loaded", "processing"].includes(edition.status) && (
+        <div className="rounded-xl border border-amber-400/60 bg-amber-50 p-4">
+          <h2 className="font-medium text-amber-950">OCR detenido</h2>
+          <p className="mt-2 text-sm text-amber-900">
+            No hubo avance en más de {staleMinutes} minutos (última actividad en
+            página {edition.processedPages}/{edition.totalPages ?? "?"}). El
+            proceso en servidor ya no está corriendo.
+          </p>
+          {!meta.pdfAvailable && (
+            <p className="mt-2 text-sm font-medium text-amber-950">
+              El PDF no está en disco — vuelve a subirlo desde Catálogos.
+            </p>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button asChild variant="default" size="sm">
+              <Link href="/admin/catalogos">
+                {meta.pdfAvailable ? "Ir a Catálogos" : "Volver a subir PDF"}
+              </Link>
+            </Button>
+            <p className="self-center text-xs text-amber-800">
+              Usa «Detener OCR» o «Reintentar OCR» arriba a la derecha.
+            </p>
+          </div>
+        </div>
+      )}
+
       {edition.status === "failed" && edition.errors.length > 0 && (
         <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4">
-          <h2 className="font-medium text-destructive">Importación fallida</h2>
+          <h2 className="font-medium text-destructive">Importación detenida</h2>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-destructive/90">
             {edition.errors.map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>
+          {!meta.pdfAvailable && (
+            <Button asChild className="mt-3" size="sm" variant="outline">
+              <Link href="/admin/catalogos">Volver a subir PDF</Link>
+            </Button>
+          )}
         </div>
       )}
 
@@ -117,6 +185,10 @@ export function CatalogEditionLive({
                   ? ` · página ${edition.processedPages}/${edition.totalPages}`
                   : ""}
               </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Puedes cerrar o refrescar esta página; el OCR sigue en el
+                servidor. Si se detiene, aparecerá un aviso aquí.
+              </p>
             </div>
           </div>
         </div>
@@ -139,7 +211,7 @@ export function CatalogEditionLive({
         ))}
       </div>
 
-      {edition.status === "processing" && (
+      {edition.status === "processing" && !isStale && (
         <div>
           <div className="mb-1 flex justify-between text-xs text-muted-foreground">
             <span>Progreso OCR</span>
@@ -188,6 +260,9 @@ export function CatalogEditionLive({
           </ul>
         </section>
       )}
+
+      {/* Fuerza re-evaluación de stale en cliente */}
+      <span className="sr-only" aria-hidden>{now}</span>
     </div>
   );
 }
