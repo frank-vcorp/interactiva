@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# next.js
+.next/
+out/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# drizzle
+drizzle/meta/
+
+# misc
+*.log
+.DS_Store
+.vercel
+coverage/
+.turbo
+
+# uploads (catalog PDFs stored at runtime)
+storage/
