@@ -14,6 +14,7 @@ import {
 } from "./detect-edition";
 import { ocrPdfPage, getPdfPageCount, assertOcrToolsAvailable } from "./ocr";
 import { parseCatalogPage } from "./parsers";
+import { pruneEditionPdfsForSource } from "./prune-storage";
 import {
   getEditionPdfPath,
   saveEditionPdf,
@@ -97,6 +98,8 @@ export async function createImportFromUpload(
         })
         .where(eq(catalogEditions.id, existing.id));
 
+      await pruneEditionPdfsForSource(source);
+
       return {
         edition: {
           ...existing,
@@ -135,6 +138,8 @@ export async function createImportFromUpload(
     .update(catalogEditions)
     .set({ pdfPath: saved.path, updatedAt: new Date() })
     .where(eq(catalogEditions.id, placeholder.id));
+
+  await pruneEditionPdfsForSource(source);
 
   return { edition: { ...placeholder, pdfPath: saved.path } };
 }
@@ -479,6 +484,8 @@ export async function publishEdition(editionId: string): Promise<void> {
     .update(catalogEditions)
     .set({ status: "published", publishedAt: now, updatedAt: now })
     .where(eq(catalogEditions.id, editionId));
+
+  await pruneEditionPdfsForSource(edition.source);
 }
 
 export async function restoreEdition(editionId: string): Promise<void> {
@@ -509,6 +516,8 @@ export async function restoreEdition(editionId: string): Promise<void> {
       updatedAt: now,
     })
     .where(eq(catalogEditions.id, editionId));
+
+  await pruneEditionPdfsForSource(edition.source);
 }
 
 export async function getEditionStats(editionId: string) {

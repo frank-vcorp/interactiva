@@ -1,8 +1,8 @@
 import { createHash } from "crypto";
-import { mkdir, writeFile, readFile } from "fs/promises";
+import { mkdir, writeFile, readFile, rm, access } from "fs/promises";
 import path from "path";
 
-const STORAGE_ROOT = path.join(process.cwd(), "storage", "imports");
+export const STORAGE_ROOT = path.join(process.cwd(), "storage", "imports");
 
 export function getEditionPdfPath(editionId: string): string {
   return path.join(STORAGE_ROOT, editionId, "original.pdf");
@@ -31,4 +31,25 @@ export async function readEditionPdf(editionId: string): Promise<Buffer> {
 
 export function sha256Buffer(data: Buffer): string {
   return createHash("sha256").update(data).digest("hex");
+}
+
+export async function editionPdfExists(editionId: string): Promise<boolean> {
+  try {
+    await access(getEditionPdfPath(editionId));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Elimina el directorio del PDF de una edición. Devuelve false si no existía. */
+export async function deleteEditionPdf(editionId: string): Promise<boolean> {
+  const dir = path.join(STORAGE_ROOT, editionId);
+  try {
+    await access(dir);
+    await rm(dir, { recursive: true, force: true });
+    return true;
+  } catch {
+    return false;
+  }
 }
