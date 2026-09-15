@@ -11,8 +11,9 @@ out/
 .env.local
 .env.*.local
 
-# drizzle
-drizzle/meta/
+# drizzle (keep _journal.json for migrations)
+drizzle/meta/*
+!drizzle/meta/_journal.json
 
 # misc
 *.log
