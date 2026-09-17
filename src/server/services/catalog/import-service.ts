@@ -19,6 +19,10 @@ import {
   type EbcParseContext,
 } from "./parsers/ebc";
 import {
+  parseLobatoPage,
+  type LobatoParseContext,
+} from "./parsers/lobato";
+import {
   CANCEL_EDITION_MESSAGE,
   STALE_EDITION_MESSAGE,
   isEditionOcrStale,
@@ -348,6 +352,12 @@ export async function processEdition(
     year: null,
     group: null,
   };
+  let lobatoContext: LobatoParseContext = {
+    brand: null,
+    model: null,
+    year: null,
+    segment: null,
+  };
 
   for (let page = 1; page <= pagesToProcess; page++) {
     try {
@@ -357,6 +367,10 @@ export async function processEdition(
         const ebcParsed = parseEbcPage(text, page, ebcContext);
         ebcContext = ebcParsed.context;
         parsed = ebcParsed;
+      } else if (edition.source === "lobato") {
+        const lobatoParsed = parseLobatoPage(text, page, lobatoContext);
+        lobatoContext = lobatoParsed.context;
+        parsed = lobatoParsed;
       } else {
         parsed = parseCatalogPage(edition.source, text, page);
       }
