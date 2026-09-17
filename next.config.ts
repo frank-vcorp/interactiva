@@ -5,9 +5,8 @@ const nextConfig: NextConfig = {
   experimental: {
     // Catálogos completos (EBC/Lobato) llegan a ~380 MB.
     middlewareClientMaxBodySize: "400mb",
-  },
-  serverActions: {
-    bodySizeLimit: "400mb",
+    // Next 15.5+ standalone proxy limit (types lag behind runtime).
+    ...({ proxyClientMaxBodySize: "400mb" } as Record<string, string>),
   },
 };
 

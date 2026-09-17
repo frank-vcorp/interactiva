@@ -56,11 +56,16 @@ function uploadWithProgress(
         const data = JSON.parse(raw) as ImportResponse;
         resolve({ status: xhr.status, data, raw });
       } catch {
+        const snippet = raw.trim().slice(0, 120);
         reject(
           new Error(
             xhr.status >= 500
               ? `Error del servidor (${xhr.status}). Revisa los logs del contenedor.`
-              : "Respuesta inválida del servidor.",
+              : xhr.status === 408 || xhr.status === 504
+                ? `Tiempo de espera agotado (${xhr.status}). PDFs grandes pueden tardar varios minutos en subir.`
+                : snippet
+                  ? `Respuesta inválida del servidor (${xhr.status}): ${snippet}`
+                  : `Respuesta inválida del servidor (${xhr.status}). Si el PDF es grande, espera a que termine la barra de progreso.`,
           ),
         );
       }

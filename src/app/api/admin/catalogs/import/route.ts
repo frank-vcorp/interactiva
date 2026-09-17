@@ -9,7 +9,7 @@ import {
 } from "@/server/services/catalog/import-service";
 import type { CatalogSource } from "@/server/services/catalog/types";
 
-export const maxDuration = 300;
+export const maxDuration = 3600;
 
 function isPdfFile(file: File): boolean {
   const name = file.name.toLowerCase();
