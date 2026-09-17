@@ -91,7 +91,9 @@ export function parseEbcPage(
   }
 
   if (pageNumber <= 20 && records.length === 0) {
-    warnings.push(`Página ${pageNumber}: índice o contenido preliminar EBC.`);
+    warnings.push(
+      `Página ${pageNumber}: índice o glosario (sin líneas con precio en esta página).`,
+    );
   }
 
   return {

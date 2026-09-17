@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { CatalogEditionActions } from "@/components/catalog-edition-actions";
 import { CatalogEditionLive } from "@/components/catalog-edition-live";
+import { CatalogEditionRecordCount } from "@/components/catalog-edition-record-count";
 import { getCurrentUser } from "@/server/services/session";
 import { isEditionOcrStale } from "@/lib/catalog-import-stale";
 import {
@@ -42,9 +43,11 @@ export default async function AdminCatalogoDetailPage({ params }: Props) {
           <h1 className="text-2xl font-semibold text-primary">
             {edition.source.toUpperCase()} · {edition.editionLabel}
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Importación · {stats.interpreted} registros en base
-          </p>
+          <CatalogEditionRecordCount
+            editionId={id}
+            initialCount={Math.max(stats.interpreted, edition.processedCount)}
+            status={edition.status}
+          />
         </div>
         <div className="flex flex-col gap-2 sm:items-end">
           <CatalogEditionActions

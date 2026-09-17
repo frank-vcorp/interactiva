@@ -160,7 +160,7 @@ export function parseLobatoPage(
 
   if (pageNumber <= 15 && records.length === 0) {
     warnings.push(
-      `Página ${pageNumber}: contenido preliminar (índice/glosario), sin registros vehiculares.`,
+      `Página ${pageNumber}: índice o glosario (sin líneas con precio en esta página).`,
     );
   }
 
