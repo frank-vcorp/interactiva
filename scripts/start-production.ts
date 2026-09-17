@@ -14,8 +14,9 @@ run("pnpm db:migrate");
 run("pnpm db:seed");
 
 const port = parseInt(process.env.PORT ?? "3000", 10);
-const hostname = process.env.HOSTNAME ?? "0.0.0.0";
-const app = next({ dev: false, hostname, port });
+// Docker sets HOSTNAME to the container id — never use it as the bind address.
+const bindHost = process.env.BIND_HOST ?? "0.0.0.0";
+const app = next({ dev: false, hostname: bindHost, port });
 const handle = app.getRequestHandler();
 
 void app.prepare().then(() => {
@@ -32,9 +33,9 @@ void app.prepare().then(() => {
   server.headersTimeout = REQUEST_TIMEOUT_MS + 1000;
   server.keepAliveTimeout = 72_000;
 
-  server.listen(port, hostname, () => {
+  server.listen(port, bindHost, () => {
     console.log(
-      `> Ready on http://${hostname}:${port} (requestTimeout=${REQUEST_TIMEOUT_MS}ms)`,
+      `> Ready on http://${bindHost}:${port} (requestTimeout=${REQUEST_TIMEOUT_MS}ms)`,
     );
   });
 });
