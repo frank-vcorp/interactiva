@@ -194,12 +194,17 @@ export async function cancelEditionProcessing(editionId: string): Promise<void> 
   await markEditionFailed(editionId, [CANCEL_EDITION_MESSAGE]);
 }
 
+const REPROCESSABLE_STATUSES = new Set([
+  ...RETRIABLE_IMPORT_STATUSES,
+  "processed",
+]);
+
 export async function retryEditionProcessing(editionId: string): Promise<void> {
   const edition = await getEdition(editionId);
   if (!edition) throw new Error("Edición no encontrada.");
-  if (!RETRIABLE_IMPORT_STATUSES.has(edition.status)) {
+  if (!REPROCESSABLE_STATUSES.has(edition.status)) {
     throw new Error(
-      "Solo se puede reintentar importaciones en estado cargada, procesando o fallida.",
+      "Solo se puede reintentar importaciones en estado cargada, procesando, fallida o lista para revisión.",
     );
   }
 

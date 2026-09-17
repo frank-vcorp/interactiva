@@ -57,7 +57,9 @@ export function CatalogEditionActions({
   }
 
   const canStop = ["loaded", "processing"].includes(status);
-  const canRetry = ["loaded", "processing", "failed"].includes(status);
+  const canRetry = ["loaded", "processing", "failed", "processed"].includes(status);
+  const retryLabel =
+    status === "processed" ? "Reprocesar OCR" : "Reintentar OCR";
 
   return (
     <div className="flex flex-wrap gap-2">
@@ -83,14 +85,16 @@ export function CatalogEditionActions({
             runAction("retry", {
               confirm: !pdfAvailable
                 ? undefined
-                : status === "processing" && !isStale
-                  ? "¿Reiniciar el OCR? Se perderá el progreso parcial."
-                  : "¿Reintentar el procesamiento OCR de este PDF?",
+                : status === "processed"
+                  ? "¿Reprocesar este PDF con el parser actual? Se borrarán los registros actuales."
+                  : status === "processing" && !isStale
+                    ? "¿Reiniciar el OCR? Se perderá el progreso parcial."
+                    : "¿Reintentar el procesamiento OCR de este PDF?",
             })
           }
           disabled={!!loading}
         >
-          {loading === "retry" ? "Reencolando…" : "Reintentar OCR"}
+          {loading === "retry" ? "Reencolando…" : retryLabel}
         </Button>
       )}
       {!pdfAvailable && canRetry && (
